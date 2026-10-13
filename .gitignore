@@ -1,0 +1,33 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+
+# --- Python environments & caches ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Editors & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Local output & scratch files ---
+*.log
+*.bak
+*.diff
+*.zip
+*_export.csv
+squatch_signal_discovered_leads.csv
+squatch-signal-leads.csv
+app_before_*.py

@@ -1,0 +1,6 @@
+streamlit>=1.50.0
+requests>=2.32.0
+dnspython>=2.6.0
+python-dotenv>=1.0.1
+# Optional accounts (guest mode needs no keys); imported lazily only when configured:
+supabase>=2.10.0
