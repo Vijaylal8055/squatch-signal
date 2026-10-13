@@ -77,15 +77,37 @@ streamlit run app.py                                   # http://localhost:8501 �
 ```
 
 ## Deploy free (Streamlit Community Cloud)
-1. Push this folder to a **public GitHub repo** (`.gitignore` already excludes `.env`, `.venv`, caches, CSV exports and zips):
+Repository: <https://github.com/Vijaylal8055/squatch-signal> (public, branch `main`). Status: deployed and verified. Sign-in works and
+every discovery run is stored in Supabase `discovered_leads`.
+
+**First deployment**
+1. Push this folder to a **public GitHub repo**. `.gitignore` already excludes `.env`, `.venv`, caches, CSV exports and zips.
+   Run `git status` first and confirm `.env` is **not** listed:
    ```bash
-   git init && git add . && git commit -m "Squatch Signal"
+   git init && git add . && git status
+   git commit -m "Squatch Signal"
    git branch -M main && git remote add origin https://github.com/<you>/squatch-signal.git && git push -u origin main
    ```
-2. Go to <https://share.streamlit.io> → **Create app** → pick the repo, branch `main`, main file `app.py` → **Deploy**.
-3. Done — reviewers can click the link and use **Continue as guest** (no login wall).
-4. *(Optional)* permanent accounts: create a free Supabase project, run `supabase_schema.sql`, then in the app's **Settings → Secrets** add
-   `SUPABASE_URL = "https://…supabase.co"` and `SUPABASE_PUBLISHABLE_KEY = "…"`. Never use the service-role key.
+2. Go to <https://share.streamlit.io> → **Create app** → *Deploy a public app from GitHub* → repo `<you>/squatch-signal`,
+   branch `main`, main file `app.py`.
+3. **Advanced settings**: choose Python 3.12 and paste your Supabase values under **Secrets** (publishable key only, never the service-role key):
+   ```toml
+   SUPABASE_URL = "https://xxxx.supabase.co"
+   SUPABASE_PUBLISHABLE_KEY = "sb_publishable_xxxx"
+   ```
+4. Click **Deploy** (first build takes a couple of minutes). Visitors can use **Continue as guest** with no login.
+5. In Supabase → **Authentication → URL Configuration**, set **Site URL** to your `https://<subdomain>.streamlit.app` address so
+   confirmation emails link back to the deployed app instead of localhost.
+6. Test: sign in, run **Discover prospects** on a site, then confirm new rows in Supabase → Table Editor → `discovered_leads`.
+
+**Updating the app** — edit locally, then `git add . && git commit -m "message" && git push`. Streamlit Cloud redeploys automatically.
+Change secrets under the app's **Settings → Secrets** (no code change or push needed).
+
+**Free-tier behaviour (can change; see Streamlit docs)**
+* Apps with no traffic for about 12 hours go to sleep; the next visitor clicks a wake-up button. The in-memory 1-hour cache and guest data are lost on sleep.
+* Roughly 1 GB memory shared limits, unlimited public apps, one private app, no custom domain, `*.streamlit.app` URL.
+* Discovery runs from Streamlit's shared servers; a few sites may return HTTP 403 to cloud IP ranges (the Internet Archive fallback usually still returns a labelled copy).
+* Free Supabase projects can pause when idle. If sign-in suddenly fails, restore the project from the Supabase dashboard.
 
 ## Supabase setup (optional) and verification
 1. Create a free project at <https://supabase.com>. Under **Authentication → Sign In / Providers** keep **Email** enabled
@@ -121,6 +143,9 @@ guest start → discover → save → dedupe → leads → outreach draft → ad
 * **`new row violates row-level security policy` (42501)** — you are not signed in, or the table has RLS on but no policy. Re-run the schema.
 * **`violates check constraint`** — `email_status` must be Verified / Unverified / Missing, `fit_score` 0–100, draft `status` draft / reviewed / sent / archived.
 * **Account created but cannot sign in** — email confirmation is on: click the link in the email, or turn off *Confirm email* in Supabase.
+* **Deployed app is slow to open / shows a "wake up" page** — it slept after about 12 idle hours. Click the button and wait for it to restart.
+* **Confirmation email opens localhost** — set Supabase **Site URL** to your `.streamlit.app` address (Authentication → URL Configuration).
+* **App works locally but fails on Streamlit Cloud** — open **Manage app → Logs**; check that Secrets are pasted as TOML with quotes and that Python 3.12 is selected.
 * **Port 8501 busy** — `streamlit run app.py --server.port 8502`.
 * **A site says HTTP 403** — it blocks automated clients; the app reports it instead of bypassing it.
 
