@@ -1,0 +1,125 @@
+# Save as: .github/workflows/keep-alive.yml  (in the squatch-signal repo)
+#
+# Keeps Squatch Signal from going dormant:
+#   1. Streamlit Community Cloud puts apps to sleep after ~12h without a real
+#      browser visit. A plain HTTP ping does NOT count (Streamlit needs a live
+#      websocket session), so this opens the app in a headless browser, clicks
+#      the "get this app back up" button if it is asleep, and stays connected
+#      for a few seconds.
+#   2. Free Supabase projects pause after ~7 days of inactivity, so we also make
+#      a tiny read-only REST call.
+#
+# Repo settings (Settings -> Secrets and variables -> Actions):
+#   (none) - app URL defaults to https://squatch-signal.streamlit.app/
+#   Optional override: variable/secret STREAMLIT_APP_URL
+# Optional secrets (for the Supabase ping; skipped if missing):
+#   SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY         (publishable/anon key only)
+
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # every 6 hours (UTC), well inside Streamlit's 12h window
+  workflow_dispatch: {}       # lets you run it manually from the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  wake-streamlit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_URL: ${{ vars.STREAMLIT_APP_URL || secrets.STREAMLIT_APP_URL || 'https://squatch-signal.streamlit.app/' }}
+    steps:
+      - name: Check app URL is configured
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Set STREAMLIT_APP_URL (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Open the app (wakes it if asleep)
+        run: |
+          cat > wake.py << 'PY'
+          import os, sys, time
+          from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+          url = os.environ["APP_URL"]
+          wake_text = "get this app back up"
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+              time.sleep(5)
+
+              # Asleep? Click the wake-up button.
+              button = page.get_by_role("button", name=wake_text, exact=False)
+              if button.count() > 0:
+                  print("App was asleep - clicking wake-up button")
+                  button.first.click()
+                  time.sleep(10)
+              else:
+                  print("App was already awake")
+
+              # Streamlit apps render inside an iframe on *.streamlit.app
+              frame = page.frame_locator('iframe[title="streamlitApp"]')
+              try:
+                  frame.locator('[data-testid="stApp"]').wait_for(timeout=120_000)
+                  print("Streamlit app is up and rendering")
+              except PWTimeout:
+                  # Fallback for non-iframe hosting
+                  try:
+                      page.locator('[data-testid="stApp"]').wait_for(timeout=15_000)
+                      print("Streamlit app is up (no iframe)")
+                  except PWTimeout:
+                      page.screenshot(path="failure.png", full_page=True)
+                      browser.close()
+                      print("::error::App did not load after wake attempt")
+                      sys.exit(1)
+
+              time.sleep(15)  # stay connected so the websocket session registers as traffic
+              browser.close()
+          PY
+          python wake.py
+
+      - name: Upload screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshot
+          path: failure.png
+          if-no-files-found: ignore
+
+  ping-supabase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - name: Read-only ping so the free project never pauses
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "Supabase secrets not set - skipping."
+            exit 0
+          fi
+          # RLS returns an empty list for anonymous calls, which is fine: it still counts as activity.
+          curl -fsS --max-time 20 \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            "$SUPABASE_URL/rest/v1/discovered_leads?select=id&limit=1" > /dev/null
+          echo "Supabase ping OK"
